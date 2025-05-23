@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>学生数据库 E-R 图（支持三元关系与自动布局）</title>
+    <script src="https://unpkg.com/gojs@2.3.13/release/go.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            box-sizing: border-box; 
+        }
+        #diagram { 
+            width: 100vw; 
+            height: 800px; 
+            border: 2px solid #999; 
+            box-sizing: border-box; 
+        }
+        h1 { text-align: center; margin: 10px 0; }
+        #controls { margin: 5px 0; }
+        #controls label { margin-right: 10px; }
+        #controls input, #controls select, #controls button { margin: 5px; }
+        #customCardinality { display: none; }
+    </style>
+</head>
+<body>
+    <h1>数据库系统 E-R 图制作（支持多元关系与自动布局）</h1>
+    <div id="controls">
+        <label>类型:</label>
+        <select id="nodeType">
+            <option value="entity">实体</option>
+            <option value="relationship">联系</option>
+            <option value="attribute">属性</option>
+        </select>
+        <label>名称:</label>
+        <input type="text" id="nodeName" placeholder="输入名称">
+        <label>是否主键:(作用于[属性])</label>
+        <input type="checkbox" id="isKey">
+        <button onclick="addNode()">添加节点</button>
+        <br>
+        <label>连接从:</label>
+        <select id="fromNode"></select>
+        <label>关系基数:</label>
+        <select id="relationshipCardinality" onchange="toggleCustomCardinality()">
+            <option value="">无</option>
+            <option value="1">1</option>
+            <option value="m">m</option>
+            <option value="n">n</option>
+            <option value="custom">自定义</option>
+        </select>
+        <input type="text" id="customCardinality" placeholder="输入自定义基数">
+        <label>到:</label>
+        <select id="toNode"></select>
+        <button onclick="addLink()">添加连接</button>
+        <br>
+        <button onclick="exportDiagram()">导出为图片</button>
+        <button onclick="autoLayout()">自动布局</button>
+    </div>
+    <div id="diagram"></div>
+    <script>
+        // 初始化 GoJS 画布
+        const $ = go.GraphObject.make;
+        const diagram = $(go.Diagram, "diagram", {
+            "undoManager.isEnabled": true,
+            layout: $(go.ForceDirectedLayout),
+            contextMenu: $(go.Adornment, "Vertical",
+                $(go.TextBlock, { text: "删除节点", margin: 4 },
+                    { click: (e, obj) => {
+                        const node = obj.part.adornedPart;
+                        diagram.startTransaction("delete node");
+                        diagram.remove(node);
+                        updateNodeSelects();
+                        diagram.commitTransaction("delete node");
+                    }
+                })
+            )
+        });
+
+        // 定义节点模板
+        diagram.nodeTemplateMap.add("entity",
+            $(go.Node, "Auto",
+                { locationSpot: go.Spot.Center },
+                $(go.Shape, "Rectangle", { fill: "lightblue", strokeWidth: 2 }),
+                $(go.TextBlock, { margin: 8, font: "bold 14px sans-serif" },
+                    new go.Binding("text", "name"))
+            )
+        );
+
+        diagram.nodeTemplateMap.add("relationship",
+            $(go.Node, "Auto",
+                { locationSpot: go.Spot.Center },
+                $(go.Shape, "Diamond", { fill: "lightgreen", strokeWidth: 2 }),
+                $(go.TextBlock, { margin: 8, font: "bold 14px sans-serif" },
+                    new go.Binding("text", "name"))
+            )
+        );
+
+        diagram.nodeTemplateMap.add("attribute",
+            $(go.Node, "Auto",
+                { locationSpot: go.Spot.Center },
+                $(go.Shape, "Ellipse", { fill: "lightyellow", strokeWidth: 1 }),
+                $(go.TextBlock, { margin: 8, font: "12px sans-serif" },
+                    new go.Binding("text", "name"),
+                    new go.Binding("textDecoration", "isKey", isKey => isKey ? "underline" : "none"))
+            )
+        );
+
+        // 定义连线模板（仅显示关系基数，靠近起点）
+        diagram.linkTemplate =
+            $(go.Link,
+                { routing: go.Link.Normal, corner: 5 },
+                $(go.Shape, { strokeWidth: 2, stroke: "#333" }),
+                $(go.TextBlock, { segmentOffset: new go.Point(0, 10), font: "10px sans-serif" },
+                    new go.Binding("text", "relationshipCardinality"))
+            );
+
+        // 初始化数据（包含三元关系示例）
+        const nodeDataArray = [
+            { key: "Student", name: "学生", category: "entity" },
+            { key: "Course", name: "课程", category: "entity" },
+            { key: "Teacher", name: "教师", category: "entity" },
+            { key: "Enrollment", name: "选课安排", category: "relationship" },
+            { key: "Sno", name: "Sno", category: "attribute", isKey: true },
+            { key: "Sname", name: "Sname", category: "attribute" },
+            { key: "Cno", name: "Cno", category: "attribute", isKey: true },
+            { key: "Tno", name: "Tno", category: "attribute", isKey: true },
+            { key: "Grade", name: "Grade", category: "attribute" }
+        ];
+
+        const linkDataArray = [
+            // 学生属性连接
+            { from: "Student", to: "Sno", relationshipCardinality: "" },
+            { from: "Student", to: "Sname", relationshipCardinality: "" },
+            // 课程属性连接
+            { from: "Course", to: "Cno", relationshipCardinality: "" },
+            // 教师属性连接
+            { from: "Teacher", to: "Tno", relationshipCardinality: "" },
+            // 选课安排属性连接
+            { from: "Enrollment", to: "Grade", relationshipCardinality: "" },
+            // 三元关系连接
+            { from: "Student", to: "Enrollment", relationshipCardinality: "1" },
+            { from: "Course", to: "Enrollment", relationshipCardinality: "m" },
+            { from: "Teacher", to: "Enrollment", relationshipCardinality: "n" }
+        ];
+
+        diagram.model = $(go.GraphLinksModel, {
+            nodeDataArray: nodeDataArray,
+            linkDataArray: linkDataArray
+        });
+
+        // 更新节点选择下拉框
+        function updateNodeSelects() {
+            const fromSelect = document.getElementById("fromNode");
+            const toSelect = document.getElementById("toNode");
+            fromSelect.innerHTML = "";
+            toSelect.innerHTML = "";
+            diagram.model.nodeDataArray.forEach(node => {
+                const option = document.createElement("option");
+                option.value = node.key;
+                option.text = node.name;
+                fromSelect.appendChild(option.cloneNode(true));
+                toSelect.appendChild(option);
+            });
+        }
+
+        // 切换自定义基数输入框的显示
+        function toggleCustomCardinality() {
+            const cardinalitySelect = document.getElementById("relationshipCardinality");
+            const customInput = document.getElementById("customCardinality");
+            customInput.style.display = cardinalitySelect.value === "custom" ? "inline" : "none";
+        }
+
+        // 添加节点
+        function addNode() {
+            const type = document.getElementById("nodeType").value;
+            const name = document.getElementById("nodeName").value.trim();
+            const isKey = document.getElementById("isKey").checked;
+            if (!name) {
+                alert("请输入节点名称！");
+                return;
+            }
+            const key = name + "_" + Date.now();
+            diagram.startTransaction("add node");
+            diagram.model.addNodeData({ key: key, name: name, category: type, isKey: type === "attribute" ? isKey : false });
+            diagram.commitTransaction("add node");
+            document.getElementById("nodeName").value = "";
+            document.getElementById("isKey").checked = false;
+            updateNodeSelects();
+        }
+
+        // 添加连接
+        function addLink() {
+            const from = document.getElementById("fromNode").value;
+            const to = document.getElementById("toNode").value;
+            const cardinalitySelect = document.getElementById("relationshipCardinality");
+            const customCardinality = document.getElementById("customCardinality").value.trim();
+            let relationshipCardinality = cardinalitySelect.value;
+            if (relationshipCardinality === "custom") {
+                if (!customCardinality) {
+                    alert("请输入自定义基数！");
+                    return;
+                }
+                relationshipCardinality = customCardinality;
+            }
+            if (!from || !to) {
+                alert("请选择起点和终点节点！");
+                return;
+            }
+            if (from === to) {
+                alert("不能连接相同的节点！");
+                return;
+            }
+            diagram.startTransaction("add link");
+            diagram.model.addLinkData({ 
+                from: from, 
+                to: to, 
+                relationshipCardinality: relationshipCardinality || "" 
+            });
+            diagram.commitTransaction("add link");
+            cardinalitySelect.value = "";
+            document.getElementById("customCardinality").value = "";
+            document.getElementById("customCardinality").style.display = "none";
+        }
+
+        // 导出为图片
+        function exportDiagram() {
+            const img = diagram.makeImage({
+                scale: 1,
+                background: "white",
+                type: "image/png"
+            });
+            const link = document.createElement("a");
+            link.href = img.src;
+            link.download = "er_diagram.png";
+            link.click();
+        }
+
+        // 自动布局
+        function autoLayout() {
+            diagram.startTransaction("auto layout");
+            diagram.layoutDiagram(true);
+            diagram.commitTransaction("auto layout");
+        }
+
+        // 初始化下拉框
+        updateNodeSelects();
+    </script>
+</body>
+</html>
