@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hugging Face 批量下载工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#4F46E5',
+                        secondary: '#10B981',
+                        danger: '#EF4444',
+                        warning: '#F59E0B',
+                        info: '#3B82F6',
+                        dark: '#1F2937',
+                        light: '#F9FAFB'
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .scrollbar-hide {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+            .scrollbar-hide::-webkit-scrollbar {
+                display: none;
+            }
+            .animate-pulse-slow {
+                animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-gray-50 min-h-screen flex flex-col">
+    <!-- 顶部导航 -->
+    <header class="bg-primary text-white shadow-md">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-download text-2xl"></i>
+                <h1 class="text-xl font-bold">Hugging Face 批量下载工具</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <a href="https://huggingface.co" target="_blank" class="hover:text-gray-200 transition-colors">
+                    <i class="fa fa-external-link"></i> 官网
+                </a>
+                <button id="theme-toggle" class="hover:text-gray-200 transition-colors">
+                    <i class="fa fa-moon-o"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-grow container mx-auto px-4 py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 左侧：输入区域 -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-xl shadow-lg p-6 h-full flex flex-col">
+                    <h2 class="text-xl font-bold mb-4 flex items-center">
+                        <i class="fa fa-list-alt text-primary mr-2"></i> 仓库管理
+                    </h2>
+                    
+                    <div class="mb-4">
+                        <label for="download-path" class="block text-sm font-medium text-gray-700 mb-1">下载路径</label>
+                        <input 
+                            type="text" 
+                            id="download-path" 
+                            placeholder="输入下载目录路径" 
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
+                        >
+                    </div>
+
+                    <div class="mb-6">
+                        <label for="repo-input" class="block text-sm font-medium text-gray-700 mb-1">添加仓库</label>
+                        <div class="flex">
+                            <input 
+                                type="text" 
+                                id="repo-input" 
+                                placeholder="用户名/仓库名 (例如: Ichont/saunfasheji)" 
+                                class="flex-grow px-4 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all"
+                            >
+                            <button 
+                                id="add-repo" 
+                                class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-r-lg transition-colors flex items-center"
+                            >
+                                <i class="fa fa-plus mr-1"></i> 添加
+                            </button>
+                        </div>
+                        <p id="repo-input-error" class="text-danger text-sm mt-1 hidden">请输入有效的仓库格式</p>
+                    </div>
+                    
+                    <div class="mb-6">
+                        <div class="flex justify-between items-center mb-2">
+                            <h3 class="font-medium text-gray-700">待下载仓库</h3>
+                            <div class="flex space-x-1">
+                                <button id="clear-all" class="text-gray-500 hover:text-danger transition-colors text-sm">
+                                    <i class="fa fa-trash-o"></i> 清空
+                                </button>
+                                <button id="import-repos" class="text-gray-500 hover:text-primary transition-colors text-sm">
+                                    <i class="fa fa-upload"></i> 导入
+                                </button>
+                                <button id="export-repos" class="text-gray-500 hover:text-primary transition-colors text-sm">
+                                    <i class="fa fa-download"></i> 导出
+                                </button>
+                            </div>
+                        </div>
+                        <div class="border border-gray-200 rounded-lg h-64 overflow-y-auto scrollbar-hide p-2" id="repo-list">
+                            <div class="text-gray-500 italic text-center py-8">暂无仓库，请添加</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-auto">
+                        <div class="flex space-x-3">
+                            <button 
+                                id="start-download" 
+                                class="flex-grow bg-secondary hover:bg-secondary/90 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center"
+                            >
+                                <i class="fa fa-download mr-2"></i> 开始下载
+                            </button>
+                            <button 
+                                id="stop-download" 
+                                class="flex-grow bg-danger hover:bg-danger/90 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center opacity-50 cursor-not-allowed"
+                            >
+                                <i class="fa fa-stop mr-2"></i> 停止
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右侧：日志和状态 -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl shadow-lg p-6 h-full flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold flex items-center">
+                            <i class="fa fa-terminal text-primary mr-2"></i> 下载日志
+                        </h2>
+                        <div class="flex space-x-2">
+                            <button id="clear-log" class="text-gray-500 hover:text-danger transition-colors">
+                                <i class="fa fa-trash-o"></i> 清空
+                            </button>
+                            <button id="copy-log" class="text-gray-500 hover:text-primary transition-colors">
+                                <i class="fa fa-copy"></i> 复制
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-grow border border-gray-200 rounded-lg overflow-hidden flex flex-col">
+                        <div class="bg-gray-50 border-b border-gray-200 px-4 py-2 flex justify-between items-center">
+                            <div class="flex items-center">
+                                <span id="status-icon" class="inline-block w-3 h-3 rounded-full bg-gray-400 mr-2"></span>
+                                <span id="status-text">就绪</span>
+                            </div>
+                            <div class="text-sm text-gray-500">
+                                <span id="progress-text">0/0 个仓库</span>
+                            </div>
+                        </div>
+                        <div id="log-container" class="flex-grow overflow-y-auto p-4 bg-gray-50/50 scrollbar-hide">
+                            <div class="text-gray-500 italic">等待下载开始...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="bg-gray-50 rounded-lg p-3 text-center">
+                            <div class="text-sm text-gray-500">总计</div>
+                            <div class="text-2xl font-bold text-gray-800" id="total-count">0</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-3 text-center">
+                            <div class="text-sm text-green-600">成功</div>
+                            <div class="text-2xl font-bold text-green-700" id="success-count">0</div>
+                        </div>
+                        <div class="bg-red-50 rounded-lg p-3 text-center">
+                            <div class="text-sm text-red-600">失败</div>
+                            <div class="text-2xl font-bold text-red-700" id="fail-count">0</div>
+                        </div>
+                        <div class="bg-blue-50 rounded-lg p-3 text-center">
+                            <div class="text-sm text-blue-600">进行中</div>
+                            <div class="text-2xl font-bold text-blue-700" id="pending-count">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部信息 -->
+    <footer class="bg-dark text-white py-4 mt-6">
+        <div class="container mx-auto px-4 text-center text-sm">
+            <p>© 2025 Hugging Face 批量下载工具 | 使用 HTML, Tailwind CSS 和 JavaScript 构建</p>
+        </div>
+    </footer>
+
+    <!-- 导入/导出模态框 -->
+    <div id="modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold" id="modal-title">导入仓库</h3>
+               slam dunk
+                <button id="close-modal" class="text-gray-500 hover:text-gray-700">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="mb-4">
+                <textarea 
+                    id="modal-textarea" 
+                    class="w-full h-40 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none"
+                    placeholder="每行输入一个仓库 (用户名/仓库名)"
+                ></textarea>
+            </div>
+            <div class="flex justify-end space-x-3">
+                <button id="cancel-modal" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                    取消
+                </button>
+                <button id="confirm-modal" class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                    确认
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        const state = {
+            repos: [],
+            isDownloading: false,
+            currentIndex: 0,
+            successCount: 0,
+            failCount: 0,
+            logs: [],
+            currentTaskId: null
+        };
+
+        // DOM 元素
+        const elements = {
+            downloadPath: document.getElementById('download-path'),
+            repoInput: document.getElementById('repo-input'),
+            addRepoBtn: document.getElementById('add-repo'),
+            repoInputError: document.getElementById('repo-input-error'),
+            repoList: document.getElementById('repo-list'),
+            startDownloadBtn: document.getElementById('start-download'),
+            stopDownloadBtn: document.getElementById('stop-download'),
+            clearAllBtn: document.getElementById('clear-all'),
+            importReposBtn: document.getElementById('import-repos'),
+            exportReposBtn: document.getElementById('export-repos'),
+            logContainer: document.getElementById('log-container'),
+            statusIcon: document.getElementById('status-icon'),
+            statusText: document.getElementById('status-text'),
+            progressText: document.getElementById('progress-text'),
+            totalCount: document.getElementById('total-count'),
+            successCount: document.getElementById('success-count'),
+            failCount: document.getElementById('fail-count'),
+            pendingCount: document.getElementById('pending-count'),
+            clearLogBtn: document.getElementById('clear-log'),
+            copyLogBtn: document.getElementById('copy-log'),
+            themeToggle: document.getElementById('theme-toggle'),
+            modal: document.getElementById('modal'),
+            modalTitle: document.getElementById('modal-title'),
+            modalTextarea: document.getElementById('modal-textarea'),
+            closeModalBtn: document.getElementById('close-modal'),
+            cancelModalBtn: document.getElementById('cancel-modal'),
+            confirmModalBtn: document.getElementById('confirm-modal')
+        };
+
+        // 初始化
+        async function init() {
+            loadSavedRepos();
+            updateRepoList();
+            updateCounters();
+            bindEvents();
+            await loadConfig();
+        }
+
+        // 加载配置
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                elements.downloadPath.value = config.download_dir;
+            } catch (error) {
+                showToast('加载配置失败');
+            }
+        }
+
+        // 绑定事件处理
+        function bindEvents() {
+            elements.addRepoBtn.addEventListener('click', addRepo);
+            elements.repoInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') addRepo();
+            });
+            elements.startDownloadBtn.addEventListener('click', startDownload);
+            elements.stopDownloadBtn.addEventListener('click', stopDownload);
+            elements.clearAllBtn.addEventListener('click', clearAllRepos);
+            elements.importReposBtn.addEventListener('click', () => openModal('import'));
+            elements.exportReposBtn.addEventListener('click', exportRepos);
+            elements.clearLogBtn.addEventListener('click', clearLog);
+            elements.copyLogBtn.addEventListener('click', copyLog);
+            elements.themeToggle.addEventListener('click', toggleTheme);
+            elements.closeModalBtn.addEventListener('click', closeModal);
+            elements.cancelModalBtn.addEventListener('click', closeModal);
+            elements.confirmModalBtn.addEventListener('click', handleModalConfirm);
+        }
+
+        // 添加仓库
+        function addRepo() {
+            const repo = elements.repoInput.value.trim();
+            if (!repo) {
+                showInputError('请输入仓库名称');
+                return;
+            }
+
+            const repoPattern = /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/;
+            if (!repoPattern.test(repo)) {
+                showInputError('请输入有效的仓库格式 (用户名/仓库名)');
+                return;
+            }
+
+            if (state.repos.includes(repo)) {
+                showInputError('该仓库已在列表中');
+                return;
+            }
+
+            state.repos.push(repo);
+            saveRepos();
+            updateRepoList();
+            elements.repoInput.value = '';
+            hideInputError();
+        }
+
+        // 显示/隐藏输入错误
+        function showInputError(message) {
+            elements.repoInputError.textContent = message;
+            elements.repoInputError.classList.remove('hidden');
+            elements.repoInput.classList.add('border-danger');
+        }
+
+        function hideInputError() {
+            elements.repoInputError.classList.add('hidden');
+            elements.repoInput.classList.remove('border-danger');
+        }
+
+        // 更新仓库列表显示
+        function updateRepoList() {
+            if (state.repos.length === 0) {
+                elements.repoList.innerHTML = '<div class="text-gray-500 italic text-center py-8">暂无仓库，请添加</div>';
+                return;
+            }
+
+            elements.repoList.innerHTML = '';
+            state.repos.forEach((repo, index) => {
+                const repoItem = document.createElement('div');
+                repoItem.className = 'flex items-center justify-between p-2 rounded hover:bg-gray-50 transition-colors mb-1';
+                repoItem.innerHTML = `
+                    <div class="truncate max-w-[160px]">${repo}</div>
+                    <button class="delete-repo text-gray-400 hover:text-danger transition-colors" data-index="${index}">
+                        <i class="fa fa-times-circle"></i>
+                    </button>
+                `;
+                elements.repoList.appendChild(repoItem);
+            });
+
+            document.querySelectorAll('.delete-repo').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = parseInt(e.currentTarget.dataset.index);
+                    state.repos.splice(index, 1);
+                    saveRepos();
+                    updateRepoList();
+                });
+            });
+        }
+
+        // 保存/加载仓库列表
+        function saveRepos() {
+            localStorage.setItem('hf_repos', JSON.stringify(state.repos));
+        }
+
+        function loadSavedRepos() {
+            const savedRepos = localStorage.getItem('hf_repos');
+            if (savedRepos) {
+                state.repos = JSON.parse(savedRepos);
+            }
+        }
+
+        // 清空所有仓库
+        function clearAllRepos() {
+            if (state.repos.length === 0) return;
+            if (confirm('确定要清空所有仓库吗？')) {
+                state.repos = [];
+                saveRepos();
+                updateRepoList();
+            }
+        }
+
+        // 导入/导出仓库
+        function openModal(type) {
+            if (type === 'import') {
+                elements.modalTitle.textContent = '导入仓库';
+                elements.modalTextarea.value = '';
+                elements.confirmModalBtn.onclick = importRepos;
+            } else {
+                elements.modalTitle.textContent = '导出仓库';
+                elements.modalTextarea.value = state.repos.join('\n');
+                elements.modalTextarea.readOnly = true;
+                elements.confirmModalBtn.onclick = () => {
+                    copyToClipboard(elements.modalTextarea.value);
+                    showToast('已复制到剪贴板');
+                    closeModal();
+                };
+            }
+            elements.modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+            elements.modal.classList.add('hidden');
+            elements.modalTextarea.readOnly = false;
+        }
+
+        function importRepos() {
+            const reposText = elements.modalTextarea.value.trim();
+            if (!reposText) {
+                showToast('导入内容不能为空');
+                return;
+            }
+
+            const newRepos = reposText.split('\n')
+                .map(repo => repo.trim())
+                .filter(repo => repo);
+
+            const invalidRepos = newRepos.filter(repo => !/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+$/.test(repo));
+            if (invalidRepos.length > 0) {
+                showToast(`包含 ${invalidRepos.length} 个无效仓库格式`);
+                return;
+            }
+
+            state.repos = [...new Set([...state.repos, ...newRepos])];
+            saveRepos();
+            updateRepoList();
+            closeModal();
+            showToast(`成功导入 ${newRepos.length} 个仓库`);
+        }
+
+        function exportRepos() {
+            openModal('export');
+        }
+
+        // 下载相关功能
+        async function startDownload() {
+            if (state.isDownloading) return;
+            if (state.repos.length === 0) {
+                showToast('请先添加仓库');
+                return;
+            }
+
+            state.isDownloading = true;
+            state.currentIndex = 0;
+            state.successCount = 0;
+            state.failCount = 0;
+            state.logs = [];
+
+            elements.startDownloadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            elements.stopDownloadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            elements.statusIcon.className = 'inline-block w-3 h-3 rounded-full bg-blue-500 animate-pulse mr-2';
+            elements.statusText.textContent = '下载中...';
+            elements.logContainer.innerHTML = '';
+
+            await processNextRepo();
+        }
+
+        async function stopDownload() {
+            if (!state.isDownloading) return;
+
+            try {
+                await fetch(`/api/tasks/${state.currentTaskId}/cancel`, { method: 'POST' });
+                state.isDownloading = false;
+                elements.startDownloadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                elements.stopDownloadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                elements.statusIcon.className = 'inline-block w-3 h-3 rounded-full bg-yellow-500 mr-2';
+                elements.statusText.textContent = '已停止';
+                logMessage('⚠️ 下载已被用户停止', 'warning');
+            } catch (error) {
+                showToast('停止下载失败');
+            }
+        }
+
+        async function processNextRepo() {
+            if (!state.isDownloading || state.currentIndex >= state.repos.length) {
+                finishDownload();
+                return;
+            }
+
+            const repo = state.repos[state.currentIndex];
+            logMessage(`🔄 开始处理仓库: ${repo}`, 'info');
+            updateProgress();
+
+            try {
+                await simulateDownload(repo);
+                state.successCount++;
+                logMessage(`  ✅ 下载完成: ${repo}`, 'success');
+            } catch (error) {
+                state.failCount++;
+                logMessage(`  ❌ 下载失败: ${repo} - ${error.message}`, 'error');
+            }
+
+            state.currentIndex++;
+            updateCounters();
+            setTimeout(processNextRepo, 500);
+        }
+
+        function finishDownload() {
+            state.isDownloading = false;
+            state.currentTaskId = null;
+            elements.startDownloadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            elements.stopDownloadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+            if (state.successCount === state.repos.length) {
+                elements.statusIcon.className = 'inline-block w-3 h-3 rounded-full bg-green-500 mr-2';
+                elements.statusText.textContent = '全部完成';
+                logMessage(`🎉 所有 ${state.repos.length} 个仓库下载完成，全部成功！`, 'success');
+            } else if (state.failCount === 0) {
+                elements.statusIcon.className = 'inline-block w-3 h-3 rounded-full bg-green-500 mr-2';
+                elements.statusText.textContent = '已完成';
+                logMessage(`🎉 所有 ${state.repos.length} 个仓库下载完成！`, 'success');
+            } else {
+                elements.statusIcon.className = 'inline-block w-3 h-3 rounded-full bg-yellow-500 mr-2';
+                elements.statusText.textContent = '部分完成';
+                logMessage(`⚠️ 下载完成: ${state.successCount} 成功, ${state.failCount} 失败`, 'warning');
+            }
+
+            updateProgress();
+        }
+
+        async function simulateDownload(repo) {
+            return new Promise((resolve, reject) => {
+                fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        repos: [repo],
+                        download_dir: elements.downloadPath.value || './huggingface_data'
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.task_id) {
+                        state.currentTaskId = data.task_id;
+                        pollTaskStatus(data.task_id, resolve, reject);
+                    } else {
+                        reject(new Error('创建任务失败'));
+                    }
+                })
+                .catch(error => {
+                    reject(error);
+                });
+            });
+        }
+
+        function pollTaskStatus(task_id, resolve, reject) {
+            const pollInterval = setInterval(() => {
+                fetch(`/api/tasks/${task_id}`)
+                .then(response => response.json())
+                .then(task => {
+                    if (task.logs && task.logs.length > state.logs.length) {
+                        const newLogs = task.logs.slice(state.logs.length);
+                        newLogs.forEach(log => {
+                            let logType = 'info';
+                            if (log.status === 'success') logType = 'success';
+                            if (log.status === 'failed') logType = 'error';
+                            logMessage(`  ${log.message}`, logType);
+                        });
+                    }
+
+                    elements.statusText.textContent = task.status === 'processing' 
+                        ? '下载中...' 
+                        : task.status === 'completed' 
+                            ? '已完成' 
+                            : task.status === 'cancelled' 
+                                ? '已取消' 
+                                : '等待中';
+
+                    elements.statusIcon.className = `inline-block w-3 h-3 rounded-full ${
+                        task.status === 'completed' ? 'bg-green-500' :
+                        task.status === 'processing' ? 'bg-blue-500 animate-pulse' :
+                        task.status === 'cancelled' ? 'bg-gray-500' : 'bg-gray-400'
+                    } mr-2`;
+
+                    if (task.status === 'completed' || task.status === 'cancelled') {
+                        clearInterval(pollInterval);
+                        if (task.status === 'completed') {
+                            resolve();
+                        } else {
+                            reject(new Error('任务已取消'));
+                        }
+                    }
+                })
+                .catch(error => {
+                    clearInterval(pollInterval);
+                    reject(error);
+                });
+            }, 1000);
+        }
+
+        // 日志相关功能
+        function logMessage(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            
+            let icon, colorClass;
+            switch(type) {
+                case 'success':
+                    icon = 'fa-check-circle';
+                    colorClass = 'text-green-600';
+                    break;
+                case 'error':
+                    icon = 'fa-times-circle';
+                    colorClass = 'text-red-600';
+                    break;
+                case 'warning':
+                    icon = 'fa-exclamation-triangle';
+                    colorClass = 'text-yellow-600';
+                    break;
+                case 'info':
+                default:
+                    icon = 'fa-info-circle';
+                    colorClass = 'text-blue-600';
+                    break;
+            }
+            
+            logEntry.className = `flex items-start mb-2`;
+            logEntry.innerHTML = `
+                <div class="mr-2 mt-0.5 ${colorClass}">
+                    <i class="fa ${icon}"></i>
+                </div>
+                <div class="flex-grow">
+                    <div class="text-xs text-gray-500">${timestamp}</div>
+                    <div>${message}</div>
+                </div>
+            `;
+            
+            elements.logContainer.appendChild(logEntry);
+            elements.logContainer.scrollTop = elements.logContainer.scrollHeight;
+            
+            state.logs.push({
+                timestamp,
+                message,
+                type
+            });
+        }
+
+        function clearLog() {
+            elements.logContainer.innerHTML = '';
+            state.logs = [];
+        }
+
+        function copyLog() {
+            if (state.logs.length === 0) {
+                showToast('没有日志可复制');
+                return;
+            }
+            
+            const logText = state.logs.map(log => 
+                `${log.timestamp} [${log.type.toUpperCase()}] ${log.message}`
+            ).join('\n');
+            
+            copyToClipboard(logText);
+            showToast('日志已复制到剪贴板');
+        }
+
+        // 更新计数器
+        function updateCounters() {
+            elements.totalCount.textContent = state.repos.length;
+            elements.successCount.textContent = state.successCount;
+            elements.failCount.textContent = state.failCount;
+            elements.pendingCount.textContent = state.isDownloading 
+                ? state.repos.length - state.currentIndex 
+                : 0;
+        }
+
+        // 更新进度显示
+        function updateProgress() {
+            elements.progressText.textContent = 
+                `${state.currentIndex}/${state.repos.length} 个仓库`;
+        }
+
+        // 辅助功能
+        function copyToClipboard(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+
+        function showToast(message) {
+            let toast = document.getElementById('toast');
+            if (toast) {
+                toast.remove();
+            }
+            
+            toast = document.createElement('div');
+            toast.id = 'toast';
+            toast.className = 'fixed bottom-4 right-4 bg-dark text-white px-4 py-2 rounded-lg shadow-lg z-50 transform transition-all duration-300 translate-y-10 opacity-0';
+            toast.textContent = message;
+            
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 3000);
+        }
+
+        function toggleTheme() {
+            const isDark = document.documentElement.classList.toggle('dark');
+            elements.themeToggle.innerHTML = isDark 
+                ? '<i class="fa fa-sun-o"></i>' 
+                : '<i class="fa fa-moon-o"></i>';
+        }
+
+        function handleModalConfirm() {
+            if (elements.modalTitle.textContent === '导入仓库') {
+                importRepos();
+            } else {
+                copyToClipboard(elements.modalTextarea.value);
+                showToast('已复制到剪贴板');
+                closeModal();
+            }
+        }
+
+        // 初始化应用
+        init();
+    </script>
+</body>
+</html>
